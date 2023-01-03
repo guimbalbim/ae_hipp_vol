@@ -1,0 +1,620 @@
+---
+title: "Hippocampus and Aerobic Exercise Review"
+author: "Guilherme Moraes Balbim"
+date: "01/03/2023"
+output: 
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+    toc_depth: 5
+  word_document: 
+    toc: yes
+    toc_depth: 5
+geometry: "left = 1cm, right = 1cm, top = 1cm, bottom = 2.5cm"
+header-includes:
+- \usepackage{caption}
+- \usepackage{pdflscape}
+- \newcommand{\blandscape}{\begin{landscape}}
+- \newcommand{\elandscape}{\end{landscape}}
+editor_options: 
+  chunk_output_type: console
+---
+
+\newpage
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  fig.height = 7, fig.width = 9, fig.align = "center")
+```
+
+\small
+
+# Loading packages
+
+```{r, message=FALSE}
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(readxl, janitor, plyr, robumeta, dplyr, metafor, clubSandwich, ggplot2, psych, devtools, tidyverse, stringr, knitr, tableone, tinytex)
+
+```
+
+# Loading the data
+```{r, message=FALSE}
+
+ex_hpc_data <- read_csv("Hippocampus_MetaAnalysis_Agreement_BDNF_20230103.csv", 
+                         show_col_types = FALSE,
+                         name_repair = make_clean_names,
+                        col_select = c(1:3, 5:9, 11:32))
+
+```
+
+# Prepping the data
+```{r, message=FALSE}
+
+# Combine author with year, and study_year with contrast
+ex_hpc_data_prep <-  ex_hpc_data %>%
+  dplyr::rename(outcome_type = outcome_1) %>% 
+  unite("study_year", author:year) %>% 
+  unite("study_year_int_dpt", study_year, contrast, sep = "_", remove = FALSE) %>%
+  mutate(total_n = m_n + f_n,
+         pct_f = round((f_n*100/total_n), 2)) %>%
+  relocate(c(total_n, pct_f), .after = f_n) %>% 
+  dplyr::select(-c(contrast))
+
+table(ex_hpc_data_prep$study_year)
+
+```
+
+# Calculating Hedge's g
+```{r, message=FALSE}
+
+ex_hpc_data_g <- ex_hpc_data_prep %>% 
+  mutate(var_d = (((pre_exp_n + pre_con_n) / (pre_exp_n * pre_con_n)) + ((smd^2) / (2*(pre_exp_n + pre_con_n)))),
+         j = (1 - (3/(4 * (pre_exp_n + pre_con_n -2) - 1))),
+         hedges_g = smd*j,
+         var_g = j^2*var_d,
+         se_g = var_g/(pre_exp_n + pre_con_n))
+
+describeBy(ex_hpc_data_g$hedges_g, ex_hpc_data_g$outcome_type)
+
+```
+
+# Subsetting by outcome type and transforming to wide
+```{r, message=FALSE}
+
+# Subsetting
+ex_hpc_data_g_hpc <- ex_hpc_data_g %>% 
+  filter(outcome_type == "Hippocampus")
+
+ex_hpc_data_g_memory <- ex_hpc_data_g %>% 
+  filter(outcome_type == "Memory")
+
+ex_hpc_data_g_crf <- ex_hpc_data_g %>% 
+  filter(outcome_type == "CRF")
+
+ex_hpc_data_g_bdnf <- ex_hpc_data_g %>% 
+  filter(outcome_type == "BDNF")
+
+# Transforming to wide
+## Hippocampus
+ex_hpc_data_g_hpc_wide_1 <- ex_hpc_data_g_hpc %>%
+  group_by(study_year_int_dpt) %>% 
+  mutate(time = seq_along(study_year)) %>% 
+  ungroup()
+
+ex_hpc_data_g_hpc_wide <- ex_hpc_data_g_hpc_wide_1 %>% 
+  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(hedges_g, var_g))
+
+### Rowmeans
+ex_hpc_data_g_hpc_wide_rmeans <- ex_hpc_data_g_hpc_wide %>% 
+  mutate(hpc_g = rowMeans(ex_hpc_data_g_hpc_wide[c(2:4)],na.rm = TRUE), 
+         hpc_var_g = rowMeans(ex_hpc_data_g_hpc_wide[c(5:7)],na.rm = TRUE))
+         
+
+hpc_g_var <- ex_hpc_data_g_hpc_wide_rmeans %>% 
+  dplyr::select(1,8,9)
+
+## Memory
+ex_hpc_data_g_memory_wide_1 <- ex_hpc_data_g_memory %>%
+  group_by(study_year_int_dpt) %>% 
+  mutate(time = seq_along(study_year)) %>% 
+  ungroup()
+
+ex_hpc_data_g_memory_wide <- ex_hpc_data_g_memory_wide_1 %>% 
+  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(hedges_g, var_g))
+
+### Rowmeans
+ex_hpc_data_g_memory_wide_rmeans <- ex_hpc_data_g_memory_wide %>% 
+  mutate(memory_g = rowMeans(ex_hpc_data_g_memory_wide[c(2:7)],na.rm = TRUE), 
+         memory_var_g = rowMeans(ex_hpc_data_g_memory_wide[c(8:13)],na.rm = TRUE))
+
+memory_g_var <- ex_hpc_data_g_memory_wide_rmeans %>% 
+  dplyr::select(1,14,15)
+
+## CRF
+ex_hpc_data_g_crf_wide_1 <- ex_hpc_data_g_crf %>%
+  group_by(study_year_int_dpt) %>% 
+  mutate(time = seq_along(study_year)) %>% 
+  ungroup()
+
+ex_hpc_data_g_crf_wide <- ex_hpc_data_g_crf_wide_1 %>% 
+  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(hedges_g, var_g))
+
+### Rowmeans
+ex_hpc_data_g_crf_wide_rmeans <- ex_hpc_data_g_crf_wide %>% 
+  mutate(crf_g = rowMeans(ex_hpc_data_g_crf_wide[2],na.rm = TRUE),
+         crf_var_g = rowMeans(ex_hpc_data_g_crf_wide[3],na.rm = TRUE))
+
+crf_g_var <- ex_hpc_data_g_crf_wide_rmeans %>% 
+  dplyr::select(1,4,5)
+
+## BDNF
+ex_hpc_data_g_bdnf_wide_1 <- ex_hpc_data_g_bdnf %>%
+  group_by(study_year_int_dpt) %>% 
+  mutate(time = seq_along(study_year)) %>% 
+  ungroup()
+
+ex_hpc_data_g_bdnf_wide <- ex_hpc_data_g_bdnf_wide_1 %>% 
+  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(hedges_g, var_g))
+
+### Rowmeans
+ex_hpc_data_g_bdnf_wide_rmeans <- ex_hpc_data_g_bdnf_wide %>% 
+  mutate(bdnf_g = rowMeans(ex_hpc_data_g_bdnf_wide[2],na.rm = TRUE),
+         bdnf_var_g = rowMeans(ex_hpc_data_g_bdnf_wide[3],na.rm = TRUE))
+
+bdnf_g_var <- ex_hpc_data_g_bdnf_wide_rmeans %>% 
+  dplyr::select(1,4,5)
+
+# Join the datasets
+df_list <- list(ex_hpc_data_g, hpc_g_var, memory_g_var, crf_g_var, bdnf_g_var)
+
+ex_hpc_data_final <- df_list %>% 
+  reduce(full_join, by = "study_year_int_dpt")
+
+ex_hpc_data_final <- ex_hpc_data_final %>% 
+  mutate(study_year_int_dpt = case_when(study_year_int_dpt == "Castells-Sanchez/Roig-Coll_2022/2020_AT_CON_Baseline_3mo" ~ "Castells-Sanchez_2022/Roig-Coll_2020_AT_CON_Baseline_3mo",
+                                        TRUE ~ study_year_int_dpt),
+         study_year = case_when(study_year == "Castells-Sanchez/Roig-Coll_2022/2020" ~ "Castells-Sanchez_2022/Roig-Coll_2020",
+                                TRUE ~ study_year))
+
+```
+
+# Meta-analysis
+## Hippocampus
+```{r, message=FALSE}
+
+ex_hpc_data_hpc <- ex_hpc_data_final %>% 
+  filter(outcome_type == "Hippocampus") %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3")) 
+
+hippocampus.g <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_hpc) # Clustered at level of overall study
+print(hippocampus.g)
+sensitivity(hippocampus.g)
+
+# Extract 95% CI
+hippocampus.g[["data"]][["ci.u"]] <- hippocampus.g[["data.full"]][["effect.size"]]+(1.96*sqrt(hippocampus.g[["data.full"]][["var.eff.size"]]))
+hippocampus.g[["data"]][["ci.l"]] <- hippocampus.g[["data.full"]][["effect.size"]]-(1.96*sqrt(hippocampus.g[["data.full"]][["var.eff.size"]]))
+hippocampus.g[["data"]][["ci"]] <- paste("[",format(round(hippocampus.g[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
+                                         format(round(hippocampus.g[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
+
+hippocampus.g[["data"]][["study_year_int_dpt"]] <- hippocampus.g[["data"]][["study_year_int_dpt"]] %>% 
+  str_replace_all("_", " ") %>% 
+  str_replace_all("AT CON Baseline", "") %>% 
+  str_replace_all(" CON Baseline Year 1", "") %>% 
+  str_replace_all("  3mo", "") %>% 
+  str_replace_all("  12mo", "") %>%
+  str_replace_all("  6mo", "")  %>% 
+  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
+
+hippocampus.g[["data"]][["measure"]] <- hippocampus.g[["data"]][["measure"]] %>% 
+  str_replace_all("_", ", ")
+
+forest.robu(hippocampus.g,es.lab="measure",study.lab="study_year_int_dpt",
+                         "Hedges' g" = effect.size,
+                         "95% CI" = ci,
+                         "Weight" = r.weights)
+
+```
+
+## Memory
+```{r, message=FALSE}
+
+ex_hpc_data_memory <- ex_hpc_data_final %>% 
+  filter(outcome_type == "Memory") %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3"))
+
+memory.g <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_memory) # Clustered at level of overall study
+print(memory.g)
+sensitivity(memory.g)
+
+# Extract 95% CI
+memory.g[["data"]][["ci.u"]] <- memory.g[["data.full"]][["effect.size"]]+(1.96*sqrt(memory.g[["data.full"]][["var.eff.size"]]))
+memory.g[["data"]][["ci.l"]] <- memory.g[["data.full"]][["effect.size"]]-(1.96*sqrt(memory.g[["data.full"]][["var.eff.size"]]))
+memory.g[["data"]][["ci"]] <- paste("[",format(round(memory.g[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
+                                         format(round(memory.g[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
+
+memory.g[["data"]][["study_year_int_dpt"]] <- memory.g[["data"]][["study_year_int_dpt"]] %>% 
+  str_replace_all("_", " ") %>% 
+  str_replace_all("AT CON Baseline", "") %>% 
+  str_replace_all(" CON Baseline Year 1", "") %>% 
+  str_replace_all("  3mo", "") %>% 
+  str_replace_all("  12mo", "") %>%
+  str_replace_all("  6mo", "")  %>% 
+  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
+
+memory.g[["data"]][["measure"]] <- memory.g[["data"]][["measure"]] %>% 
+  str_replace_all("_", " ")
+
+forest.plot_memory<-forest.robu(memory.g,es.lab="measure",study.lab="study_year_int_dpt",
+                         "Hedges' g" = effect.size,
+                         "95% CI" = ci,
+                         "Weight" = r.weights)
+
+```
+
+## CRF
+```{r, message=FALSE}
+
+ex_hpc_data_crf <- ex_hpc_data_final %>% 
+  filter(outcome_type == "CRF") %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3"))
+
+crf.g <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_crf) # Clustered at level of overall study
+print(crf.g)
+sensitivity(crf.g)
+
+# Extract 95% CI
+crf.g[["data"]][["ci.u"]] <- crf.g[["data.full"]][["effect.size"]]+(1.96*sqrt(crf.g[["data.full"]][["var.eff.size"]]))
+crf.g[["data"]][["ci.l"]] <- crf.g[["data.full"]][["effect.size"]]-(1.96*sqrt(crf.g[["data.full"]][["var.eff.size"]]))
+crf.g[["data"]][["ci"]] <- paste("[",format(round(crf.g[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
+                                         format(round(crf.g[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
+
+crf.g[["data"]][["study_year_int_dpt"]] <- crf.g[["data"]][["study_year_int_dpt"]] %>% 
+  str_replace_all("_", " ") %>% 
+  str_replace_all("AT CON Baseline", "") %>% 
+  str_replace_all(" CON Baseline Year 1", "") %>% 
+  str_replace_all("  3mo", "") %>% 
+  str_replace_all("  12mo", "") %>%
+  str_replace_all("  6mo", "")  %>% 
+  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
+
+crf.g[["data"]][["measure"]] <- crf.g[["data"]][["measure"]] %>% 
+  str_replace_all("_", " ")
+
+forest.plot_crf<-forest.robu(crf.g,es.lab="measure",study.lab="study_year_int_dpt",
+                         "Hedges' g" = effect.size,
+                         "95% CI" = ci,
+                         "Weight" = r.weights)
+
+```
+
+## BDNF (exploratory unpublished analysis)
+```{r, message=FALSE}
+
+ex_hpc_data_bdnf <- ex_hpc_data_final %>% 
+  filter(outcome_type == "BDNF") %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3"))
+
+bdnf.g <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_bdnf) # Clustered at level of overall study
+print(bdnf.g)
+sensitivity(bdnf.g)
+
+# Extract 95% CI
+bdnf.g[["data"]][["ci.u"]] <- bdnf.g[["data.full"]][["effect.size"]]+(1.96*sqrt(bdnf.g[["data.full"]][["var.eff.size"]]))
+bdnf.g[["data"]][["ci.l"]] <- bdnf.g[["data.full"]][["effect.size"]]-(1.96*sqrt(bdnf.g[["data.full"]][["var.eff.size"]]))
+bdnf.g[["data"]][["ci"]] <- paste("[",format(round(bdnf.g[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
+                                         format(round(bdnf.g[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
+
+bdnf.g[["data"]][["study_year_int_dpt"]] <- bdnf.g[["data"]][["study_year_int_dpt"]] %>% 
+  str_replace_all("_", " ") %>% 
+  str_replace_all("AT CON Baseline", "") %>% 
+  str_replace_all(" CON Baseline Year 1", "") %>% 
+  str_replace_all("  3mo", "") %>% 
+  str_replace_all("  12mo", "") %>%
+  str_replace_all("  6mo", "")  %>% 
+  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
+
+bdnf.g[["data"]][["measure"]] <- bdnf.g[["data"]][["measure"]] %>% 
+  str_replace_all("_", " ")
+
+forest.plot_bdnf<-forest.robu(bdnf.g,es.lab="measure",study.lab="study_year_int_dpt",
+                         "Hedges' g" = effect.size,
+                         "95% CI" = ci,
+                         "Weight" = r.weights)
+
+```
+
+# Leave-one-out analysis
+## Hippocampus
+```{r, message=FALSE}
+
+hippocampus.g<-robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_hpc)
+print(hippocampus.g)
+
+leave.one.out <- function(rownum){
+  
+  # subset dataframe
+  vec <- rep(TRUE, nrow(ex_hpc_data_hpc))
+  vec[rownum] <- FALSE
+  inf <- subset(ex_hpc_data_hpc, vec)
+  
+  # fit reference model
+  rve.model.ref <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_hpc)
+  
+  # fit adjusted model
+  rve.model <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt, data = inf)
+  
+  # return results
+  results.vec <- c(g.study = round(ex_hpc_data_hpc$hedges_g[rownum], 3),
+                   g.adj = round(rve.model$reg_table$b.r, 3),
+                   se.g.adj = round(rve.model$reg_table$SE, 3),
+                   p.adj = round(rve.model$reg_table$prob, 5),
+                   diff.g = round(rve.model$reg_table$b.r - rve.model.ref$reg_table$b.r, 3),
+                   diff.se.g = round(rve.model$reg_table$SE - rve.model.ref$reg_table$SE, 3),
+                   diff.p = round(rve.model$reg_table$prob - rve.model.ref$reg_table$prob, 5),
+                   diff.isq = round(rve.model$mod_info$I.2 - rve.model.ref$mod_info$I.2, 3))
+  return(results.vec)
+}
+
+
+inf.hpc <- sapply(1:nrow(ex_hpc_data_hpc), leave.one.out)
+inf.hpc <- data.frame(t(inf.hpc))
+inf.hpc <- data.frame(label = paste(ex_hpc_data_hpc$study_year_int_dpt, ex_hpc_data_hpc$outcome_type, sep = " / "),
+                      inf.hpc)
+inf.hpc$z.g.study <- round(scale(inf.hpc$g.study), 2)
+inf.hpc$g.min.sumeff.div.sdg <- round((ex_hpc_data_hpc$hedges_g - hippocampus.g$reg_table$b.r) / sd(ex_hpc_data_hpc$hedges_g), 2)
+
+View(inf.hpc)
+
+```
+
+## Memory
+```{r, message=FALSE}
+
+memory.g<-robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_memory)
+print(memory.g)
+
+leave.one.out <- function(rownum){
+  
+  # subset dataframe
+  vec <- rep(TRUE, nrow(ex_hpc_data_memory))
+  vec[rownum] <- FALSE
+  inf <- subset(ex_hpc_data_memory, vec)
+  
+  # fit reference model
+  rve.model.ref <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_memory)
+  
+  # fit adjusted model
+  rve.model <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt, data = inf)
+  
+  # return results
+  results.vec <- c(g.study = round(ex_hpc_data_memory$hedges_g[rownum], 3),
+                   g.adj = round(rve.model$reg_table$b.r, 3),
+                   se.g.adj = round(rve.model$reg_table$SE, 3),
+                   p.adj = round(rve.model$reg_table$prob, 5),
+                   diff.g = round(rve.model$reg_table$b.r - rve.model.ref$reg_table$b.r, 3),
+                   diff.se.g = round(rve.model$reg_table$SE - rve.model.ref$reg_table$SE, 3),
+                   diff.p = round(rve.model$reg_table$prob - rve.model.ref$reg_table$prob, 5),
+                   diff.isq = round(rve.model$mod_info$I.2 - rve.model.ref$mod_info$I.2, 3))
+  return(results.vec)
+}
+
+
+inf.memory <- sapply(1:nrow(ex_hpc_data_memory), leave.one.out)
+inf.memory <- data.frame(t(inf.memory))
+inf.memory <- data.frame(label = paste(ex_hpc_data_memory$study_year_int_dpt, ex_hpc_data_memory$outcome_type, sep = " / "),
+                      inf.memory)
+inf.memory$z.g.study <- round(scale(inf.memory$g.study), 2)
+inf.memory$g.min.sumeff.div.sdg <- round((ex_hpc_data_memory$hedges_g - hippocampus.g$reg_table$b.r) / sd(ex_hpc_data_memory$hedges_g), 2)
+
+View(inf.memory)
+
+```
+
+## CRF
+```{r, message=FALSE}
+
+crf.g<-robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_crf)
+print(crf.g)
+
+leave.one.out <- function(rownum){
+  
+  # subset dataframe
+  vec <- rep(TRUE, nrow(ex_hpc_data_crf))
+  vec[rownum] <- FALSE
+  inf <- subset(ex_hpc_data_crf, vec)
+  
+  # fit reference model
+  rve.model.ref <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt,ex_hpc_data_crf)
+  
+  # fit adjusted model
+  rve.model <- robu(hedges_g~1,var=var_g,studynum=study_year_int_dpt, data = inf)
+  
+  # return results
+  results.vec <- c(g.study = round(ex_hpc_data_crf$hedges_g[rownum], 3),
+                   g.adj = round(rve.model$reg_table$b.r, 3),
+                   se.g.adj = round(rve.model$reg_table$SE, 3),
+                   p.adj = round(rve.model$reg_table$prob, 5),
+                   diff.g = round(rve.model$reg_table$b.r - rve.model.ref$reg_table$b.r, 3),
+                   diff.se.g = round(rve.model$reg_table$SE - rve.model.ref$reg_table$SE, 3),
+                   diff.p = round(rve.model$reg_table$prob - rve.model.ref$reg_table$prob, 5),
+                   diff.isq = round(rve.model$mod_info$I.2 - rve.model.ref$mod_info$I.2, 3))
+  return(results.vec)
+}
+
+
+inf.crf <- sapply(1:nrow(ex_hpc_data_crf), leave.one.out)
+inf.crf <- data.frame(t(inf.crf))
+inf.crf <- data.frame(label = paste(ex_hpc_data_crf$study_year_int_dpt, ex_hpc_data_crf$outcome_type, sep = " / "),
+                      inf.crf)
+inf.crf$z.g.study <- round(scale(inf.crf$g.study), 2)
+inf.crf$g.min.sumeff.div.sdg <- round((ex_hpc_data_crf$hedges_g - hippocampus.g$reg_table$b.r) / sd(ex_hpc_data_crf$hedges_g), 2)
+
+View(inf.crf)
+
+```
+
+# Meta-regressions
+## CRF ES predicting HPC ES
+```{r, message=FALSE}
+
+df_list_2 <- list(hpc_g_var, memory_g_var, crf_g_var, bdnf_g_var)
+
+hpc_memory_crf_bdnf_g_var <- df_list_2 %>% 
+  reduce(full_join, by = "study_year_int_dpt")
+
+# Cleaning study_year_int_dpt 
+hpc_memory_crf_bdnf_g_var <- hpc_memory_crf_bdnf_g_var %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3")) %>% 
+  mutate(study_year_int_dpt = str_replace_all(study_year_int_dpt,"_", " "),
+         study_year_int_dpt = str_replace_all(study_year_int_dpt," CON", ","),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "2", "(2"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "22", "22),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "11", "11),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "17", "17),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "15", "15),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "14", "14),"),
+         study_year_int_dpt = str_replace_all(study_year_int_dpt,"Baseline", "Baseline X"),
+         study_year_int_dpt = str_replace_all(study_year_int_dpt,"mo", "-month"))
+  
+
+crf.hpc.es <- rma(yi=hpc_g, vi=hpc_var_g, mods = ~crf_g+crf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
+crf.hpc.es
+
+crf_v_hpc <- ggplot(aes(x = crf_g, y = hpc_g, size = (1/hpc_var_g)), data = hpc_memory_crf_bdnf_g_var) + geom_point(aes(colour = study_year_int_dpt)) +
+  geom_abline(aes(intercept = crf.hpc.es$b[1], slope = crf.hpc.es$b[2]), size = 1) + 
+  ylab("Hippocampal volume effect size") + guides(size="none") + scale_colour_discrete("Study, intervention type, and time-points") +
+  ylim(-0.25, 0.5) +
+  xlab("CRF effect size") +
+  xlim(-0.2, 1.5) +
+  theme_bw(base_size = 12)
+
+crf_v_hpc
+
+ggsave(crf_v_hpc, height= 10, width= 14, file="crf_predict_hpc_20230103.jpeg", dpi = 300)
+  
+
+```
+
+## CRF ES predicting Memory ES
+```{r, message=FALSE}
+
+crf.memory.es <- rma(yi=memory_g, vi=memory_var_g, mods = ~crf_g+crf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
+crf.memory.es
+
+crf_v_memory <- ggplot(aes(x = crf_g, y = memory_g, size = (1/memory_var_g)), data = hpc_memory_crf_bdnf_g_var) + geom_point(aes(colour = study_year_int_dpt)) +
+  geom_abline(aes(intercept = crf.memory.es$b[1], slope = crf.memory.es$b[2]), size = 1) + 
+  ylab("Memory effect size") + guides(size="none") + scale_colour_discrete("Study, intervention type, and time-points") +
+  ylim(-0.25, 0.5) +
+  xlab("CRF effect size") +
+  xlim(-0.2, 1.5) +
+  theme_bw(base_size = 12)
+
+crf_v_memory
+
+ggsave(crf_v_memory, height= 10, width= 14, file="crf_predict_memory_20230103.jpeg", dpi = 300)
+
+```
+
+## CRF ES predicting BDNF ES (exploratory unpublished analysis)
+```{r, message=FALSE}
+
+# crf.bdnf.es <- rma(yi=bdnf_g, vi=bdnf_var_g, mods = ~crf_g+crf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
+# crf.bdnf.es
+# Number of parameters to be estimated is larger than the number of observations.
+
+```
+
+## HPC ES predicting Memory ES (unpublished data)
+```{r, message=FALSE}
+
+hpc.memory.es <- rma(yi=memory_g, vi=memory_var_g, mods = ~hpc_g+hpc_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
+hpc.memory.es
+
+hpc_v_memory <- ggplot(aes(x = hpc_g, y = memory_g, size = (1/memory_var_g)), data = hpc_memory_crf_bdnf_g_var) + geom_point(aes(colour = study_year_int_dpt)) +
+  geom_abline(aes(intercept = hpc.memory.es$b[1], slope = hpc.memory.es$b[2]), size = 1) + 
+  ylab("Memory effect size") + guides(size="none") + scale_colour_discrete("Study, intervention type, and time-points") +
+  ylim(-0.5, 0.5) +
+  xlab("Hippocampal volume effect size") +
+  xlim(-0.5, 0.5) +
+  theme_bw(base_size = 12)
+
+hpc_v_memory
+
+ggsave(hpc_v_memory, height= 10, width= 14, file="hpc_predict_memory_20230103.jpeg", dpi = 300)
+
+```
+
+## BDNF ES predicting HPC ES (exploratory unpublished analysis)
+```{r, message=FALSE}
+
+bdnf.hpc.es <- rma(yi=hpc_g, vi=hpc_var_g, mods = ~bdnf_g+bdnf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
+bdnf.hpc.es
+# DF is too low.
+
+```
+
+# Small study effect and publication bias
+```{r, message=FALSE}
+
+# Egger's regression test for dependent effect sizes
+eggers_hpc <- robu(hedges_g~se_g, var.eff.size = var_g, studynum = study_year_int_dpt, ex_hpc_data_hpc)
+eggers_hpc
+
+eggers_memory <- robu(hedges_g~se_g, var.eff.size = var_g, studynum = study_year_int_dpt, ex_hpc_data_memory)
+eggers_memory
+
+eggers_crf <- robu(hedges_g~se_g, var.eff.size = var_g, studynum = study_year_int_dpt, ex_hpc_data_crf)
+eggers_crf
+
+# Funnel plots
+funnel_hpc <- rma.mv(yi = hedges_g, V = var_g, random = ~factor(study_year_int_dpt)|study_year, data = ex_hpc_data_hpc, slab = study_year_int_dpt)
+funnel(funnel_hpc, xlab = "Hedges' g for hippocampal volume")
+
+funnel_memory <- rma.mv(yi = hedges_g, V = var_g, random = ~factor(study_year_int_dpt)|study_year, data = ex_hpc_data_memory, slab = study_year_int_dpt)
+funnel(funnel_memory, xlab = "Hedges' g for memory")
+
+funnel_crf <- rma.mv(yi = hedges_g, V = var_g, random = ~factor(study_year_int_dpt)|study_year, data = ex_hpc_data_crf, slab = study_year_int_dpt)
+funnel(funnel_crf, xlab = "Hedges' g for CRF")
+
+```
+
+# PEESE
+```{r, message=FALSE}
+
+ex_hpc_data_hpc <- ex_hpc_data_hpc %>% 
+  mutate(sqrt_se_g = se_g^2)
+
+ex_hpc_data_memory <- ex_hpc_data_memory %>% 
+  mutate(sqrt_se_g = se_g^2)
+
+ex_hpc_data_crf <- ex_hpc_data_crf %>% 
+  mutate(sqrt_se_g = se_g^2)
+
+peese_rve_hpc <- robu(hedges_g~sqrt_se_g, var.eff.size = var_g, studynum = study_year_int_dpt, ex_hpc_data_hpc)
+print(peese_rve_hpc)
+
+peese_rve_memory <- robu(hedges_g~sqrt_se_g, var.eff.size = var_g, studynum = study_year_int_dpt, ex_hpc_data_memory)
+print(peese_rve_memory)
+
+peese_rve_crf <- robu(hedges_g~sqrt_se_g, var.eff.size = var_g, studynum = study_year_int_dpt, ex_hpc_data_crf)
+print(peese_rve_crf)
+
+```
+
+# Descriptives
+```{r, message=FALSE}
+
+kable(digits = 2, print(printToggle = FALSE, CreateTableOne(data = ex_hpc_data_g, 
+                                                c("age",
+                                                  "total_n",
+                                                  "pct_f",
+                                                  "duration_mo"), includeNA = TRUE, addOverall = TRUE)))
+
+```
