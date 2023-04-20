@@ -1,0 +1,713 @@
+---
+title: "Hippocampus and Aerobic Exercise Review"
+author: "Guilherme Moraes Balbim"
+date: "2023-04-20"
+output: 
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+    fig_crop: no
+    toc_depth: 5
+  word_document: 
+    toc: yes
+    toc_depth: 5
+geometry: "left = 1cm, right = 1cm, top = 1cm, bottom = 2.5cm"
+header-includes:
+- \usepackage{caption}
+- \usepackage{pnglscape}
+- \newcommand{\blandscape}{\begin{landscape}}
+- \newcommand{\elandscape}{\end{landscape}}
+editor_options: 
+  chunk_output_type: console
+---
+
+\newpage
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  fig.height = 7, fig.width = 9, fig.align = "center")
+```
+
+\small
+
+# Loading packages
+
+```{r, message=FALSE}
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(readxl, janitor, plyr, robumeta, dplyr, metafor, clubSandwich, ggplot2, psych, devtools, tidyverse, stringr, knitr, tableone, tinytex)
+
+```
+# Function
+```{r, include=FALSE}
+forest.robu_mod <- function (x, es.lab, study.lab, ...) 
+{
+  if (paste(x$ml[3]) != 1) {
+    stop("Requires an intercept-only model.")
+  }
+  ellipsis <- lapply(substitute(list(...))[-1L], deparse)
+  n_user_cols <- length(ellipsis)
+  reg_table <- x$reg_table
+  N <- x$N
+  M <- x$M
+  n_rows <- M + (2 * N) + 4
+  data <- as.data.frame(x$data)
+  data.full <- as.data.frame(x$data.full)
+  data$orig.study <- as.factor(x$study_orig_id)
+  data <- data[order(data$orig.study), ]
+  data$r.weights <- data.full$r.weights
+  data$effect.size <- data.full$effect.size
+  data$var.eff.size <- data.full$var.eff.size
+  data$study.num <- data.full$study
+  add_col_titles <- as.list(names(ellipsis))
+  add_col_values <- as.list(data[, unlist(ellipsis, use.names = FALSE)])
+  id_col_title <- "Studies"
+  id_col_study_values <- unique(data[, study.lab])
+  id_col_es_values <- as.character(data[, es.lab])
+  data$obs_num <- seq(1, M)
+  data$study_num <- data$study.num
+  data$es_rows <- as.numeric(data$obs_num + (2 * data$study_num) + 
+                               1)
+  data$study_rows <- as.numeric(stats::ave(data$es_rows, data$study_num, 
+                                           FUN = min) - 1)
+  es_rows <- data$es_rows
+  study_rows <- unique(data$study_rows)
+  total_row <- max(n_rows)
+  title_row <- min(n_rows)
+  data_col_values <- data[, c("r.weights", "effect.size", 
+                              "var.eff.size")]
+  data_col_values <- cbind(data_col_values, es_rows)
+  grand.ES <- reg_table$b.r
+  grand.CI.L <- reg_table$CI.L
+  grand.CI.U <- reg_table$CI.U
+  is.numeric_df <- function(x) all(sapply(x, is.numeric))
+  specify_decimal <- function(x, k) format(round(x, k), nsmall = k)
+  makeTextGrob <- function(values, rows, just = "left", bold = FALSE) {
+    if (is.numeric_df(values)) 
+      values <- lapply(values, function(x) specify_decimal(x, 
+                                                           3))
+    if (!bold) {
+      t <- lapply(values, function(x) grid::textGrob(paste(x), 
+                                                     x = 0, just = just))
+    }
+    else {
+      t <- lapply(values, function(x) grid::textGrob(paste(x), 
+                                                     x = 0, just = just, gp = grid::gpar(fontface = "bold")))
+    }
+    return(list(values = t, rows = rows))
+  }
+  addTitleToGrob <- function(col, title) {
+    titleGrob <- makeTextGrob(values = title, rows = 1, 
+                              bold = TRUE)
+    values <- c(col$values, titleGrob$values)
+    rows <- c(col$rows, titleGrob$rows)
+    return(list(values = values, rows = rows))
+  }
+  addGrobToGrob <- function(col1, col2) {
+    values <- c(col1$values, col2$values)
+    rows <- c(col1$rows, col2$rows)
+    return(list(values = values, rows = rows))
+  }
+  makeDataGrob <- function(x) {
+    ES <- x$effect.size
+    size <- x$r.weights/max(x$r.weights)
+    CI.U <- x$effect.size + (1.96 * sqrt(x$var.eff.size))
+    CI.L <- x$effect.size - (1.96 * sqrt(x$var.eff.size))
+    type <- rep("n", M)
+    rows <- x$es_rows
+    return(list(type = type, rows = rows, size = size, CI.L = CI.L, 
+                CI.U = CI.U, ES = ES))
+  }
+  addSummaryToDataGrob <- function(x) {
+    type <- c(x$type, "s")
+    rows <- c(x$rows, max(x$rows) + 2)
+    size <- as.numeric(x$size)
+    size <- x$size/max(x$size)
+    ES <- c(x$ES, grand.ES)
+    CI.L <- c(x$CI.L, grand.CI.L)
+    CI.U <- c(x$CI.U, grand.CI.U)
+    min <- floor(as.numeric(min(CI.L)))
+    max <- ceiling(as.numeric(max(CI.U)))
+    range <- c(min, max)
+    return(list(type = type, rows = rows, size = size, CI.L = CI.L, 
+                CI.U = CI.U, ES = ES, min = min, max = max, range = range))
+  }
+  if (n_user_cols > 1) {
+    add_col <- lapply(add_col_values, function(x) makeTextGrob(x, 
+                                                               es_rows))
+    add_col <- Map(function(x, y) addTitleToGrob(x, y), 
+                   add_col, add_col_titles)
+  }
+  if (n_user_cols == 1) {
+    add_col <- makeTextGrob(add_col_values, es_rows)
+    add_col <- addTitleToGrob(add_col, add_col_titles)
+  }
+  id_col_study_grob <- makeTextGrob(id_col_study_values, study_rows, 
+                                    bold = TRUE)
+  id_col_es_grob <- makeTextGrob(id_col_es_values, es_rows)
+  id_col <- addGrobToGrob(id_col_study_grob, id_col_es_grob)
+  id_col <- addTitleToGrob(id_col, id_col_title)
+  data_col <- makeDataGrob(data_col_values)
+  data_col <- addSummaryToDataGrob(data_col)
+  drawLabelCol <- function(col, j) {
+    for (i in 1:length(col$rows)) {
+      grid::pushViewport(grid::viewport(layout.pos.row = col$rows[i], 
+                                        layout.pos.col = j))
+      grid::grid.draw(col$values[[i]])
+      grid::popViewport()
+    }
+  }
+  drawNormalCI <- function(CI.L, ES, CI.U, size) {
+    grid::grid.rect(x = grid::unit(ES, "native"), width = grid::unit(size, 
+                                                                     "snpc"), height = grid::unit(size, "snpc"), gp = grid::gpar(fill = "black"))
+    if (grid::convertX(grid::unit(CI.U, "native"), "npc", 
+                       valueOnly = TRUE) > 1) 
+      grid::grid.lines(x = grid::unit(c(CI.L, 1), c("native", 
+                                                    "npc")), y = 0.5, arrow = grid::arrow(length = grid::unit(0.05, 
+                                                                                                              "inches")))
+    else {
+      lineCol <- "black"
+      grid::grid.lines(x = grid::unit(c(CI.L, CI.U), "native"), 
+                       y = 0.5, gp = grid::gpar(col = lineCol))
+    }
+  }
+  drawSummaryCI <- function(CI.L, ES, CI.U) {
+    grid::grid.polygon(x = grid::unit(c(CI.L, ES, CI.U, 
+                                        ES), "native"), y = grid::unit(0.5 + c(0, 0.25, 
+                                                                               0, -0.25), "npc"), gp = grid::gpar(fill = "green"))
+  }
+  drawDataCol <- function(col, j) {
+    grid::pushViewport(grid::viewport(layout.pos.col = j, 
+                                      xscale = col$range))
+    grid::grid.lines(x = grid::unit(col$ES[length(col$ES)], 
+                                    "native"), y = grid::unit(0:(n_rows - 2), "lines"), 
+                     gp = grid::gpar(lty = "dashed"))
+    grid::grid.lines(x = grid::unit(0, 
+                                    "native"), y = grid::unit(0:(n_rows - 2), "lines"), 
+                     gp = grid::gpar(lty = "dotted"))
+    grid::grid.xaxis(gp = grid::gpar(cex = 1))
+    grid::grid.text("Effect Size", y = grid::unit(-3, "lines"), 
+                    x = grid::unit(0.5, "npc"), just = "centre", gp = grid::gpar(fontface = "bold"))
+    grid::popViewport()
+    x = grid::unit(0.5, "npc")
+    for (i in 1:length(col$rows)) {
+      grid::pushViewport(grid::viewport(layout.pos.row = col$rows[i], 
+                                        layout.pos.col = j, xscale = col$range))
+      if (col$type[i] == "n") 
+        drawNormalCI(col$CI.L[i], col$ES[i], col$CI.U[i], 
+                     col$size[i])
+      else drawSummaryCI(col$CI.L[i], col$ES[i], col$CI.U[i])
+      grid::popViewport()
+    }
+  }
+  id_col_width <- max(grid::unit(rep(0.9, length(id_col$values)), 
+                                 "grobwidth", id_col$values))
+  data_col_width <- grid::unit(2, "inches")
+  gap_col <- grid::unit(2.5, "mm")
+  cols <- grid::unit.c(id_col_width, gap_col, data_col_width, 
+                       gap_col)
+  add_col_widths <- c()
+  if (n_user_cols > 1) {
+    for (i in 1:n_user_cols) {
+      add_col_widths[[i]] <- max(grid::unit(rep(1, length(add_col[[i]]$values)), 
+                                            "grobwidth", add_col[[i]]$values))
+      cols <- grid::unit.c(cols, add_col_widths[[i]])
+      cols <- grid::unit.c(cols, gap_col)
+    }
+  }
+  if (n_user_cols == 1) {
+    add_col_widths <- max(grid::unit(rep(1, length(add_col[1]$values)), 
+                                     "grobwidth", add_col[1]$values))
+    cols <- grid::unit.c(cols, add_col_widths[1])
+    cols <- grid::unit.c(cols, gap_col)
+  }
+  grid::pushViewport(grid::viewport(layout = grid::grid.layout(n_rows, 
+                                                               (4 + (2 * n_user_cols)), widths = cols, heights = grid::unit(c(1, 
+                                                                                                                              rep(1, n_rows)), "lines"))))
+  grid::pushViewport(grid::viewport(layout.pos.row = 1))
+  grid::grid.text("Forest Plot", y = grid::unit(+3, "lines"), 
+                  just = "center", gp = grid::gpar(fontface = "bold"))
+  grid::grid.text(paste(x$model.lab1), y = grid::unit(+2, 
+                                                      "lines"), just = "center", gp = grid::gpar(fontface = "italic"))
+  grid::popViewport()
+  drawLabelCol(id_col, 1)
+  if (n_user_cols > 1) {
+    for (i in 1:n_user_cols) {
+      drawLabelCol(add_col[[i]], ((i * 2) + 3))
+    }
+  }
+  if (n_user_cols == 1) {
+    for (i in 1:n_user_cols) {
+      drawLabelCol(add_col, 5)
+    }
+  }
+  drawDataCol(data_col, 3)
+  grid::popViewport()
+}
+```
+
+# Loading the data
+```{r, message=FALSE}
+
+ex_hpc_data <- read_csv("Hippocampus_MetaAnalysis_Agreement_BDNF_2023017.csv", 
+                         show_col_types = FALSE,
+                         name_repair = make_clean_names,
+                        col_select = c(1:3, 5:9, 11:32))
+
+```
+
+# Prepping the data
+```{r, message=FALSE}
+
+# Combine author with year, and study_year with contrast
+ex_hpc_data_prep <-  ex_hpc_data %>%
+  filter(outcome_1 != "Memory") %>% 
+  dplyr::rename(outcome_type = outcome_1) %>% 
+  unite("study_year", author:year) %>% 
+  unite("study_year_int_dpt", study_year, contrast, sep = "_", remove = FALSE) %>%
+  mutate(total_n = m_n + f_n,
+         pct_f = round((f_n*100/total_n), 2)) %>%
+  relocate(c(total_n, pct_f), .after = f_n) %>% 
+  dplyr::select(-c(contrast))
+
+table(ex_hpc_data_prep$study_year)
+
+
+```
+
+# Calculating variance and se
+```{r, message=FALSE}
+
+ex_hpc_data <- ex_hpc_data_prep %>% 
+  mutate(var_d = (((pre_exp_n + pre_con_n) / (pre_exp_n * pre_con_n)) + ((smd^2) / (2*(pre_exp_n + pre_con_n)))),
+         se_d = var_d/(pre_exp_n + pre_con_n))
+
+describeBy(ex_hpc_data$smd, ex_hpc_data$outcome_type)
+
+```
+
+# Subsetting by outcome type and transforming to wide
+```{r, message=FALSE}
+
+# Subsetting
+ex_hpc_data_smd_hpc <- ex_hpc_data %>% 
+  filter(outcome_type == "Hippocampus")
+
+ex_hpc_data_smd_crf <- ex_hpc_data %>% 
+  filter(outcome_type == "CRF")
+
+ex_hpc_data_smd_bdnf <- ex_hpc_data %>% 
+  filter(outcome_type == "BDNF")
+
+# Transforming to wide
+## Hippocampus
+ex_hpc_data_smd_hpc_wide_1 <- ex_hpc_data_smd_hpc %>%
+  group_by(study_year_int_dpt) %>% 
+  mutate(time = seq_along(study_year)) %>% 
+  ungroup()
+
+ex_hpc_data_smd_hpc_wide <- ex_hpc_data_smd_hpc_wide_1 %>% 
+  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(smd, var_d))
+
+### Rowmeans
+ex_hpc_data_smd_hpc_wide_rmeans <- ex_hpc_data_smd_hpc_wide %>% 
+  mutate(hpc_smd = rowMeans(ex_hpc_data_smd_hpc_wide[c(2:4)],na.rm = TRUE), 
+         hpc_var_smd = rowMeans(ex_hpc_data_smd_hpc_wide[c(5:7)],na.rm = TRUE))
+         
+
+hpc_smd_var <- ex_hpc_data_smd_hpc_wide_rmeans %>% 
+  dplyr::select(1,8,9)
+
+## CRF
+ex_hpc_data_smd_crf_wide_1 <- ex_hpc_data_smd_crf %>%
+  group_by(study_year_int_dpt) %>% 
+  mutate(time = seq_along(study_year)) %>% 
+  ungroup()
+
+ex_hpc_data_smd_crf_wide <- ex_hpc_data_smd_crf_wide_1 %>% 
+  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(smd, var_d))
+
+### Rowmeans
+ex_hpc_data_smd_crf_wide_rmeans <- ex_hpc_data_smd_crf_wide %>% 
+  mutate(crf_smd = rowMeans(ex_hpc_data_smd_crf_wide[2],na.rm = TRUE),
+         crf_var_smd = rowMeans(ex_hpc_data_smd_crf_wide[3],na.rm = TRUE))
+
+crf_smd_var <- ex_hpc_data_smd_crf_wide_rmeans %>% 
+  dplyr::select(1,4,5)
+
+## BDNF
+ex_hpc_data_smd_bdnf_wide_1 <- ex_hpc_data_smd_bdnf %>%
+  group_by(study_year_int_dpt) %>% 
+  mutate(time = seq_along(study_year)) %>% 
+  ungroup()
+
+ex_hpc_data_smd_bdnf_wide <- ex_hpc_data_smd_bdnf_wide_1 %>% 
+  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(smd, var_d))
+
+### Rowmeans
+ex_hpc_data_smd_bdnf_wide_rmeans <- ex_hpc_data_smd_bdnf_wide %>% 
+  mutate(bdnf_smd = rowMeans(ex_hpc_data_smd_bdnf_wide[2],na.rm = TRUE),
+         bdnf_var_smd = rowMeans(ex_hpc_data_smd_bdnf_wide[3],na.rm = TRUE))
+
+bdnf_smd_var <- ex_hpc_data_smd_bdnf_wide_rmeans %>% 
+  dplyr::select(1,4,5)
+
+# Join the datasets
+df_list <- list(ex_hpc_data, hpc_smd_var, crf_smd_var, bdnf_smd_var)
+
+ex_hpc_data_final <- df_list %>% 
+  reduce(full_join, by = "study_year_int_dpt")
+
+ex_hpc_data_final <- ex_hpc_data_final %>% 
+  mutate(study_year_int_dpt = case_when(study_year_int_dpt == "Castells-Sanchez/Roig-Coll_2022/2020_AT_CON_Baseline_3mo" ~ "Castells-Sanchez_2022_AT_CON_Baseline_3mo",
+                                        TRUE ~ study_year_int_dpt),
+         study_year = case_when(study_year == "Castells-Sanchez/Roig-Coll_2022/2020" ~ "Castells-Sanchez_2022",
+                                TRUE ~ study_year))
+
+```
+
+# Meta-analysis
+## Hippocampus
+```{r, message=FALSE}
+
+opts_chunk$set(dev=c('png','postscript'))
+
+ex_hpc_data_hpc <- ex_hpc_data_final %>% 
+  filter(outcome_type == "Hippocampus") %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3")) 
+
+hippocampus.smd <- robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_hpc) # Clustered at level of overall study
+print(hippocampus.smd) 
+sensitivity(hippocampus.smd)
+
+# Extract 95% CI
+hippocampus.smd[["data"]][["ci.u"]] <- hippocampus.smd[["data.full"]][["effect.size"]]+(1.96*sqrt(hippocampus.smd[["data.full"]][["var.eff.size"]]))
+hippocampus.smd[["data"]][["ci.l"]] <- hippocampus.smd[["data.full"]][["effect.size"]]-(1.96*sqrt(hippocampus.smd[["data.full"]][["var.eff.size"]]))
+hippocampus.smd[["data"]][["ci"]] <- paste("[",format(round(hippocampus.smd[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
+                                         format(round(hippocampus.smd[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
+
+hippocampus.smd[["data"]][["study_year_int_dpt"]] <- hippocampus.smd[["data"]][["study_year_int_dpt"]] %>% 
+  str_replace_all("_", " ") %>% 
+  str_replace_all("AT CON Baseline", "") %>% 
+  str_replace_all(" CON Baseline Year 1", "") %>% 
+  str_replace_all("  3mo", "") %>% 
+  str_replace_all("  12mo", "") %>%
+  str_replace_all("  6mo", "")  %>% 
+  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
+
+hippocampus.smd[["data"]][["measure"]] <- hippocampus.smd[["data"]][["measure"]] %>% 
+  str_replace_all("_", ", ")
+
+
+png(filename="Plots/hipp_forest.png", width=7, height=10, units = "in", res = 600)
+hipp <- forest.robu_mod(hippocampus.smd,es.lab="measure",study.lab="study_year_int_dpt",
+                         "SMD" = effect.size,
+                         "95% CI" = ci,
+                         "Weight" = r.weights)
+print(hipp)
+dev.off()
+
+```
+
+## CRF
+```{r, message=FALSE}
+
+ex_hpc_data_crf <- ex_hpc_data_final %>% 
+  filter(outcome_type == "CRF") %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3"))
+
+crf.smd <- robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_crf) # Clustered at level of overall study
+print(crf.smd)
+sensitivity(crf.smd)
+
+# Extract 95% CI
+crf.smd[["data"]][["ci.u"]] <- crf.smd[["data.full"]][["effect.size"]]+(1.96*sqrt(crf.smd[["data.full"]][["var.eff.size"]]))
+crf.smd[["data"]][["ci.l"]] <- crf.smd[["data.full"]][["effect.size"]]-(1.96*sqrt(crf.smd[["data.full"]][["var.eff.size"]]))
+crf.smd[["data"]][["ci"]] <- paste("[",format(round(crf.smd[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
+                                         format(round(crf.smd[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
+
+crf.smd[["data"]][["study_year_int_dpt"]] <- crf.smd[["data"]][["study_year_int_dpt"]] %>% 
+  str_replace_all("_", " ") %>% 
+  str_replace_all("AT CON Baseline", "") %>% 
+  str_replace_all(" CON Baseline Year 1", "") %>% 
+  str_replace_all("  3mo", "") %>% 
+  str_replace_all("  12mo", "") %>%
+  str_replace_all("  6mo", "")  %>% 
+  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
+
+crf.smd[["data"]][["measure"]] <- crf.smd[["data"]][["measure"]] %>% 
+  str_replace_all("_", " ")
+
+png(filename="Plots/crf_forest.png", width=7, height=8.5, units = "in", res = 600)
+crf <- forest.robu_mod(crf.smd,es.lab="measure",study.lab="study_year_int_dpt",
+                         "SMD" = effect.size,
+                         "95% CI" = ci,
+                         "Weight" = r.weights)
+print(crf)
+dev.off()
+```
+
+## BDNF (exploratory unpublished analysis)
+```{r, message=FALSE}
+
+ex_hpc_data_bdnf <- ex_hpc_data_final %>% 
+  filter(outcome_type == "BDNF") %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3"))
+
+bdnf.smd <- robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_bdnf) # Clustered at level of overall study
+print(bdnf.smd)
+sensitivity(bdnf.smd)
+
+# Extract 95% CI
+bdnf.smd[["data"]][["ci.u"]] <- bdnf.smd[["data.full"]][["effect.size"]]+(1.96*sqrt(bdnf.smd[["data.full"]][["var.eff.size"]]))
+bdnf.smd[["data"]][["ci.l"]] <- bdnf.smd[["data.full"]][["effect.size"]]-(1.96*sqrt(bdnf.smd[["data.full"]][["var.eff.size"]]))
+bdnf.smd[["data"]][["ci"]] <- paste("[",format(round(bdnf.smd[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
+                                         format(round(bdnf.smd[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
+
+bdnf.smd[["data"]][["study_year_int_dpt"]] <- bdnf.smd[["data"]][["study_year_int_dpt"]] %>% 
+  str_replace_all("_", " ") %>% 
+  str_replace_all("AT CON Baseline", "") %>% 
+  str_replace_all(" CON Baseline Year 1", "") %>% 
+  str_replace_all("  3mo", "") %>% 
+  str_replace_all("  12mo", "") %>%
+  str_replace_all("  6mo", "")  %>% 
+  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
+
+bdnf.smd[["data"]][["measure"]] <- bdnf.smd[["data"]][["measure"]] %>% 
+  str_replace_all("_", " ")
+
+png(filename="Plots/bdnf_forest.png", width=7, height=6, units = "in", res = 600)
+bdnf <-forest.robu_mod(bdnf.smd,es.lab="measure",study.lab="study_year_int_dpt",
+                         "SMD" = effect.size,
+                         "95% CI" = ci,
+                         "Weight" = r.weights)
+print(crf)
+dev.off()
+```
+
+# Leave-one-out analysis
+## Hippocampus
+```{r, message=FALSE}
+
+hippocampus.smd<-robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_hpc)
+print(hippocampus.smd)
+
+leave.one.out <- function(rownum){
+  
+  # subset dataframe
+  vec <- rep(TRUE, nrow(ex_hpc_data_hpc))
+  vec[rownum] <- FALSE
+  inf <- subset(ex_hpc_data_hpc, vec)
+  
+  # fit reference model
+  rve.model.ref <- robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_hpc)
+  
+  # fit adjusted model
+  rve.model <- robu(smd~1,var=var_d,studynum=study_year_int_dpt, data = inf)
+  
+  # return results
+  results.vec <- c(smd.study = round(ex_hpc_data_hpc$smd[rownum], 3),
+                   smd.adj = round(rve.model$reg_table$b.r, 3),
+                   se.smd.adj = round(rve.model$reg_table$SE, 3),
+                   p.adj = round(rve.model$reg_table$prob, 5),
+                   diff.smd = round(rve.model$reg_table$b.r - rve.model.ref$reg_table$b.r, 3),
+                   diff.se.smd = round(rve.model$reg_table$SE - rve.model.ref$reg_table$SE, 3),
+                   diff.p = round(rve.model$reg_table$prob - rve.model.ref$reg_table$prob, 5),
+                   diff.isq = round(rve.model$mod_info$I.2 - rve.model.ref$mod_info$I.2, 3))
+  return(results.vec)
+}
+
+
+inf.hpc <- sapply(1:nrow(ex_hpc_data_hpc), leave.one.out)
+inf.hpc <- data.frame(t(inf.hpc))
+inf.hpc <- data.frame(label = paste(ex_hpc_data_hpc$study_year_int_dpt, ex_hpc_data_hpc$outcome_type, sep = " / "),
+                      inf.hpc)
+inf.hpc$z.smd.study <- round(scale(inf.hpc$smd.study), 2)
+inf.hpc$smd.min.sumeff.div.sdg <- round((ex_hpc_data_hpc$smd - hippocampus.smd$reg_table$b.r) / sd(ex_hpc_data_hpc$smd), 2)
+
+View(inf.hpc)
+
+```
+
+## CRF
+```{r, message=FALSE}
+
+crf.smd<-robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_crf)
+print(crf.smd)
+
+leave.one.out <- function(rownum){
+  
+  # subset dataframe
+  vec <- rep(TRUE, nrow(ex_hpc_data_crf))
+  vec[rownum] <- FALSE
+  inf <- subset(ex_hpc_data_crf, vec)
+  
+  # fit reference model
+  rve.model.ref <- robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_crf)
+  
+  # fit adjusted model
+  rve.model <- robu(smd~1,var=var_d,studynum=study_year_int_dpt, data = inf)
+  
+  # return results
+  results.vec <- c(smd.study = round(ex_hpc_data_crf$smd[rownum], 3),
+                   smd.adj = round(rve.model$reg_table$b.r, 3),
+                   se.smd.adj = round(rve.model$reg_table$SE, 3),
+                   p.adj = round(rve.model$reg_table$prob, 5),
+                   diff.smd = round(rve.model$reg_table$b.r - rve.model.ref$reg_table$b.r, 3),
+                   diff.se.smd = round(rve.model$reg_table$SE - rve.model.ref$reg_table$SE, 3),
+                   diff.p = round(rve.model$reg_table$prob - rve.model.ref$reg_table$prob, 5),
+                   diff.isq = round(rve.model$mod_info$I.2 - rve.model.ref$mod_info$I.2, 3))
+  return(results.vec)
+}
+
+
+inf.crf <- sapply(1:nrow(ex_hpc_data_crf), leave.one.out)
+inf.crf <- data.frame(t(inf.crf))
+inf.crf <- data.frame(label = paste(ex_hpc_data_crf$study_year_int_dpt, ex_hpc_data_crf$outcome_type, sep = " / "),
+                      inf.crf)
+inf.crf$z.smd.study <- round(scale(inf.crf$smd.study), 2)
+inf.crf$smd.min.sumeff.div.sdg <- round((ex_hpc_data_crf$smd - hippocampus.smd$reg_table$b.r) / sd(ex_hpc_data_crf$smd), 2)
+
+View(inf.crf)
+
+```
+
+# Meta-regressions
+## CRF ES predicting HPC ES
+```{r, message=FALSE}
+
+df_list_2 <- list(hpc_smd_var, crf_smd_var)
+
+hpc_crf_bdnf_d_var <- df_list_2 %>% 
+  reduce(full_join, by = "study_year_int_dpt")
+
+# Cleaning study_year_int_dpt 
+hpc_crf_bdnf_d_var <- hpc_crf_bdnf_d_var %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
+  filter(!str_detect(study_year_int_dpt, "Year_3")) %>% 
+  mutate(study_year_int_dpt = str_replace_all(study_year_int_dpt,"_", " "),
+         study_year_int_dpt = str_replace_all(study_year_int_dpt," CON", ","),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "2", "(2"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "22", "22),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "11", "11),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "17", "17),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "15", "15),"),
+         study_year_int_dpt = str_replace(study_year_int_dpt, "14", "14),"),
+         study_year_int_dpt = str_replace_all(study_year_int_dpt,"Baseline", "Baseline X"),
+         study_year_int_dpt = str_replace_all(study_year_int_dpt,"mo", "-month"))
+  
+
+crf.hpc.es <- rma(yi=hpc_smd, vi=hpc_var_smd, mods = ~crf_smd+crf_var_smd, data = hpc_crf_bdnf_d_var, slab = study_year_int_dpt, method = "DL")
+crf.hpc.es
+
+crf_v_hpc <- ggplot(aes(x = crf_smd, y = hpc_smd, size = (1/hpc_var_smd)), data = hpc_crf_bdnf_d_var) + geom_point(aes(colour = study_year_int_dpt)) +
+  geom_abline(aes(intercept = crf.hpc.es$b[1], slope = crf.hpc.es$b[2]), size = 1) + 
+  ylab("Hippocampal volume effect size") + guides(size="none") + scale_colour_discrete("Study, intervention type, and time-points") +
+  ylim(-0.25, 0.5) +
+  xlab("CRF effect size") +
+  xlim(-0.2, 1.5) +
+  theme_bw(base_size = 12)
+
+crf_v_hpc
+
+#ggsave(crf_v_hpc, height= 10, width= 14, file="crf_predict_hpc_20230118.jpeg", dpi = 300)
+  
+
+```
+
+
+## CRF ES predicting BDNF ES (exploratory unpublished analysis)
+```{r, message=FALSE}
+
+# crf.bdnf.es <- rma(yi=bdnf_g, vi=bdnf_var_g, mods = ~crf_g+crf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
+# crf.bdnf.es
+# Number of parameters to be estimated is larger than the number of observations.
+
+```
+
+## BDNF ES predicting HPC ES (exploratory unpublished analysis)
+```{r, message=FALSE}
+
+# bdnf.hpc.es <- rma(yi=hpc_g, vi=hpc_var_g, mods = ~bdnf_g+bdnf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
+# bdnf.hpc.es
+# DF is too low.
+
+```
+
+# Small study effect and publication bias
+```{r, message=FALSE}
+
+# Egger's regression test for dependent effect sizes
+eggers_hpc <- robu(smd~se_d, var.eff.size = var_d, studynum = study_year_int_dpt, ex_hpc_data_hpc)
+eggers_hpc
+
+eggers_crf <- robu(smd~se_d, var.eff.size = var_d, studynum = study_year_int_dpt, ex_hpc_data_crf)
+eggers_crf
+
+# Funnel plots
+png(filename="Plots/hipp_funnel.png", width=5, height=5, units = "in", res = 600)
+funnel_hpc <- rma.mv(yi = smd, V = var_d, random = ~factor(study_year_int_dpt)|study_year, data = ex_hpc_data_hpc, slab = study_year_int_dpt)
+hipp_funnel <- funnel(funnel_hpc, xlab = "SMD for hippocampal volume")
+print(hipp_funnel)
+dev.off()
+
+png(filename="Plots/crf_funnel.png", width=5, height=5, units = "in", res = 600)
+funnel_crf <- rma.mv(yi = smd, V = var_d, random = ~factor(study_year_int_dpt)|study_year, data = ex_hpc_data_crf, slab = study_year_int_dpt)
+crf_funnel <- funnel(funnel_crf, xlab = "SMD for CRF")
+print(crf_funnel)
+dev.off()
+```
+
+# PEESE
+```{r, message=FALSE}
+# Hippocampus
+ex_hpc_data_hpc <- ex_hpc_data_hpc %>% 
+  mutate(sqrt_se_d = se_d^2)
+
+peese_rve_hpc <- robu(smd~sqrt_se_d, var.eff.size = var_d, studynum = study_year_int_dpt, ex_hpc_data_hpc)
+print(peese_rve_hpc)
+
+# CRF
+ex_hpc_data_crf <- ex_hpc_data_crf %>% 
+  mutate(sqrt_se_d = se_d^2)
+
+peese_rve_crf <- robu(smd~sqrt_se_d, var.eff.size = var_d, studynum = study_year_int_dpt, ex_hpc_data_crf)
+print(peese_rve_crf)
+
+```
+
+# Descriptives
+```{r, message=FALSE}
+
+kable(digits = 2, print(printToggle = FALSE, CreateTableOne(data = ex_hpc_data, 
+                                                c("age",
+                                                  "total_n",
+                                                  "pct_f",
+                                                  "duration_mo"), includeNA = TRUE, addOverall = TRUE)))
+
+
+# N for studies with hippocampus data only
+ex_hpc_data_nhpc <- ex_hpc_data %>% 
+  dplyr::select(study, study_year_int_dpt, outcome_type, m_n, f_n, pre_exp_n, post_exp_n, pre_con_n, post_con_n) %>% 
+  filter(outcome_type == "Hippocampus") %>% 
+  filter(study_year_int_dpt != "Pani_2022_MICT_CON_Baseline_Year_3" &  study_year_int_dpt != "Pani_2022_MICT_CON_Baseline_Year_5" & study_year_int_dpt != "Pani_2022_HIIT_CON_Baseline_Year_3" & study_year_int_dpt != "Pani_2022_HIIT_CON_Baseline_Year_5") %>% 
+  distinct(study_year_int_dpt, .keep_all = TRUE)
+
+# Without repeating control group
+ex_hpc_data_nhpc_cont <- ex_hpc_data_nhpc %>% 
+  distinct(study, .keep_all = TRUE)
+
+## N intervention  
+ex_hpc_data_nhpc %>% 
+  summarise(sum_n_int = sum(pre_exp_n))
+
+## N control
+ex_hpc_data_nhpc_cont %>% 
+  summarise(sum_n_con = sum(pre_con_n)) 
+  
+
+```
