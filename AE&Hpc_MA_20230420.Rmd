@@ -1,24 +1,23 @@
 ---
-title: "Hippocampus and Aerobic Exercise Review"
-author: "Guilherme Moraes Balbim"
-date: "2023-04-20"
-output: 
-  pdf_document: 
+title: "Aerobic exercise training effects on hippocampal volume in healthy older individuals: a meta-analysis of randomized controlled trials"
+author: "Guilherme Moraes Balbim (PhD) and Nárlon C Boa Sorte Silva (PhD)"
+date: "2023-10-11"
+output:
+  pdf_document:
     toc: yes
     number_sections: yes
-    fig_crop: no
     toc_depth: 5
-  word_document: 
+  word_document:
     toc: yes
-    toc_depth: 5
-geometry: "left = 1cm, right = 1cm, top = 1cm, bottom = 2.5cm"
+    toc_depth: '5'
+editor_options:
+  chunk_output_type: console
 header-includes:
 - \usepackage{caption}
-- \usepackage{pnglscape}
+- \usepackage{pdflscape}
 - \newcommand{\blandscape}{\begin{landscape}}
 - \newcommand{\elandscape}{\end{landscape}}
-editor_options: 
-  chunk_output_type: console
+geometry: left = 1cm, right = 1cm, top = 1cm, bottom = 1cm
 ---
 
 \newpage
@@ -39,8 +38,11 @@ if (!require("pacman")) install.packages("pacman")
 pacman::p_load(readxl, janitor, plyr, robumeta, dplyr, metafor, clubSandwich, ggplot2, psych, devtools, tidyverse, stringr, knitr, tableone, tinytex)
 
 ```
-# Function
+
+# Function to adapt forest.robu from robumeta package
 ```{r, include=FALSE}
+
+# The forest.robu function from robumeta package was adapted to fill the forest plot polygon (i.e., diamond) with a green colour
 forest.robu_mod <- function (x, es.lab, study.lab, ...) 
 {
   if (paste(x$ml[3]) != 1) {
@@ -175,7 +177,7 @@ forest.robu_mod <- function (x, es.lab, study.lab, ...)
   drawSummaryCI <- function(CI.L, ES, CI.U) {
     grid::grid.polygon(x = grid::unit(c(CI.L, ES, CI.U, 
                                         ES), "native"), y = grid::unit(0.5 + c(0, 0.25, 
-                                                                               0, -0.25), "npc"), gp = grid::gpar(fill = "green"))
+                                                                               0, -0.25), "npc"), gp = grid::gpar(fill = "green")) # This line was adapted to fill the forest plot polygon with a green colour
   }
   drawDataCol <- function(col, j) {
     grid::pushViewport(grid::viewport(layout.pos.col = j, 
@@ -250,7 +252,7 @@ forest.robu_mod <- function (x, es.lab, study.lab, ...)
 # Loading the data
 ```{r, message=FALSE}
 
-ex_hpc_data <- read_csv("Hippocampus_MetaAnalysis_Agreement_BDNF_2023017.csv", 
+ex_hpc_data <- read_csv("Hippocampus_MetaAnalysis_Agreement_final.csv", 
                          show_col_types = FALSE,
                          name_repair = make_clean_names,
                         col_select = c(1:3, 5:9, 11:32))
@@ -297,9 +299,6 @@ ex_hpc_data_smd_hpc <- ex_hpc_data %>%
 ex_hpc_data_smd_crf <- ex_hpc_data %>% 
   filter(outcome_type == "CRF")
 
-ex_hpc_data_smd_bdnf <- ex_hpc_data %>% 
-  filter(outcome_type == "BDNF")
-
 # Transforming to wide
 ## Hippocampus
 ex_hpc_data_smd_hpc_wide_1 <- ex_hpc_data_smd_hpc %>%
@@ -336,25 +335,8 @@ ex_hpc_data_smd_crf_wide_rmeans <- ex_hpc_data_smd_crf_wide %>%
 crf_smd_var <- ex_hpc_data_smd_crf_wide_rmeans %>% 
   dplyr::select(1,4,5)
 
-## BDNF
-ex_hpc_data_smd_bdnf_wide_1 <- ex_hpc_data_smd_bdnf %>%
-  group_by(study_year_int_dpt) %>% 
-  mutate(time = seq_along(study_year)) %>% 
-  ungroup()
-
-ex_hpc_data_smd_bdnf_wide <- ex_hpc_data_smd_bdnf_wide_1 %>% 
-  pivot_wider(id_cols = study_year_int_dpt, names_from = time, values_from = c(smd, var_d))
-
-### Rowmeans
-ex_hpc_data_smd_bdnf_wide_rmeans <- ex_hpc_data_smd_bdnf_wide %>% 
-  mutate(bdnf_smd = rowMeans(ex_hpc_data_smd_bdnf_wide[2],na.rm = TRUE),
-         bdnf_var_smd = rowMeans(ex_hpc_data_smd_bdnf_wide[3],na.rm = TRUE))
-
-bdnf_smd_var <- ex_hpc_data_smd_bdnf_wide_rmeans %>% 
-  dplyr::select(1,4,5)
-
 # Join the datasets
-df_list <- list(ex_hpc_data, hpc_smd_var, crf_smd_var, bdnf_smd_var)
+df_list <- list(ex_hpc_data, hpc_smd_var, crf_smd_var)
 
 ex_hpc_data_final <- df_list %>% 
   reduce(full_join, by = "study_year_int_dpt")
@@ -401,16 +383,17 @@ hippocampus.smd[["data"]][["measure"]] <- hippocampus.smd[["data"]][["measure"]]
   str_replace_all("_", ", ")
 
 
-png(filename="Plots/hipp_forest.png", width=7, height=10, units = "in", res = 600)
+png(filename="hipp_forest.png", width=7, height=10, units = "in", res = 600)
 hipp <- forest.robu_mod(hippocampus.smd,es.lab="measure",study.lab="study_year_int_dpt",
                          "SMD" = effect.size,
                          "95% CI" = ci,
                          "Weight" = r.weights)
-print(hipp)
 dev.off()
-
 ```
 
+![Hippocampus Forest Plot](hipp_forest.png)
+
+\newpage
 ## CRF
 ```{r, message=FALSE}
 
@@ -441,54 +424,17 @@ crf.smd[["data"]][["study_year_int_dpt"]] <- crf.smd[["data"]][["study_year_int_
 crf.smd[["data"]][["measure"]] <- crf.smd[["data"]][["measure"]] %>% 
   str_replace_all("_", " ")
 
-png(filename="Plots/crf_forest.png", width=7, height=8.5, units = "in", res = 600)
+png(filename="crf_forest.png", width=7, height=8.5, units = "in", res = 600)
 crf <- forest.robu_mod(crf.smd,es.lab="measure",study.lab="study_year_int_dpt",
                          "SMD" = effect.size,
                          "95% CI" = ci,
                          "Weight" = r.weights)
-print(crf)
 dev.off()
 ```
 
-## BDNF (exploratory unpublished analysis)
-```{r, message=FALSE}
+![CRF Forest Plot](crf_forest.png)
 
-ex_hpc_data_bdnf <- ex_hpc_data_final %>% 
-  filter(outcome_type == "BDNF") %>% 
-  filter(!str_detect(study_year_int_dpt, "Year_5")) %>% 
-  filter(!str_detect(study_year_int_dpt, "Year_3"))
-
-bdnf.smd <- robu(smd~1,var=var_d,studynum=study_year_int_dpt,ex_hpc_data_bdnf) # Clustered at level of overall study
-print(bdnf.smd)
-sensitivity(bdnf.smd)
-
-# Extract 95% CI
-bdnf.smd[["data"]][["ci.u"]] <- bdnf.smd[["data.full"]][["effect.size"]]+(1.96*sqrt(bdnf.smd[["data.full"]][["var.eff.size"]]))
-bdnf.smd[["data"]][["ci.l"]] <- bdnf.smd[["data.full"]][["effect.size"]]-(1.96*sqrt(bdnf.smd[["data.full"]][["var.eff.size"]]))
-bdnf.smd[["data"]][["ci"]] <- paste("[",format(round(bdnf.smd[["data"]][["ci.l"]], 3), nsmall = 3), "; ", 
-                                         format(round(bdnf.smd[["data"]][["ci.u"]], 3), nsmall = 3), "]", sep = "")
-
-bdnf.smd[["data"]][["study_year_int_dpt"]] <- bdnf.smd[["data"]][["study_year_int_dpt"]] %>% 
-  str_replace_all("_", " ") %>% 
-  str_replace_all("AT CON Baseline", "") %>% 
-  str_replace_all(" CON Baseline Year 1", "") %>% 
-  str_replace_all("  3mo", "") %>% 
-  str_replace_all("  12mo", "") %>%
-  str_replace_all("  6mo", "")  %>% 
-  str_replace_all(c("2022" = "(2022)", "2020" = "(2020)", "2011" = "(2011)", "2017" = "(2017)", "2015" = "(2015)", "2014" = "(2014)"))
-
-bdnf.smd[["data"]][["measure"]] <- bdnf.smd[["data"]][["measure"]] %>% 
-  str_replace_all("_", " ")
-
-png(filename="Plots/bdnf_forest.png", width=7, height=6, units = "in", res = 600)
-bdnf <-forest.robu_mod(bdnf.smd,es.lab="measure",study.lab="study_year_int_dpt",
-                         "SMD" = effect.size,
-                         "95% CI" = ci,
-                         "Weight" = r.weights)
-print(crf)
-dev.off()
-```
-
+\newpage
 # Leave-one-out analysis
 ## Hippocampus
 ```{r, message=FALSE}
@@ -602,39 +548,8 @@ hpc_crf_bdnf_d_var <- hpc_crf_bdnf_d_var %>%
   
 
 crf.hpc.es <- rma(yi=hpc_smd, vi=hpc_var_smd, mods = ~crf_smd+crf_var_smd, data = hpc_crf_bdnf_d_var, slab = study_year_int_dpt, method = "DL")
+
 crf.hpc.es
-
-crf_v_hpc <- ggplot(aes(x = crf_smd, y = hpc_smd, size = (1/hpc_var_smd)), data = hpc_crf_bdnf_d_var) + geom_point(aes(colour = study_year_int_dpt)) +
-  geom_abline(aes(intercept = crf.hpc.es$b[1], slope = crf.hpc.es$b[2]), size = 1) + 
-  ylab("Hippocampal volume effect size") + guides(size="none") + scale_colour_discrete("Study, intervention type, and time-points") +
-  ylim(-0.25, 0.5) +
-  xlab("CRF effect size") +
-  xlim(-0.2, 1.5) +
-  theme_bw(base_size = 12)
-
-crf_v_hpc
-
-#ggsave(crf_v_hpc, height= 10, width= 14, file="crf_predict_hpc_20230118.jpeg", dpi = 300)
-  
-
-```
-
-
-## CRF ES predicting BDNF ES (exploratory unpublished analysis)
-```{r, message=FALSE}
-
-# crf.bdnf.es <- rma(yi=bdnf_g, vi=bdnf_var_g, mods = ~crf_g+crf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
-# crf.bdnf.es
-# Number of parameters to be estimated is larger than the number of observations.
-
-```
-
-## BDNF ES predicting HPC ES (exploratory unpublished analysis)
-```{r, message=FALSE}
-
-# bdnf.hpc.es <- rma(yi=hpc_g, vi=hpc_var_g, mods = ~bdnf_g+bdnf_var_g, data = hpc_memory_crf_bdnf_g_var, slab = study_year_int_dpt, method = "DL")
-# bdnf.hpc.es
-# DF is too low.
 
 ```
 
@@ -647,20 +562,32 @@ eggers_hpc
 
 eggers_crf <- robu(smd~se_d, var.eff.size = var_d, studynum = study_year_int_dpt, ex_hpc_data_crf)
 eggers_crf
+```
 
+```{r}
 # Funnel plots
-png(filename="Plots/hipp_funnel.png", width=5, height=5, units = "in", res = 600)
+png(filename="hipp_funnel.png", width=5, height=5, units = "in", res = 600)
 funnel_hpc <- rma.mv(yi = smd, V = var_d, random = ~factor(study_year_int_dpt)|study_year, data = ex_hpc_data_hpc, slab = study_year_int_dpt)
 hipp_funnel <- funnel(funnel_hpc, xlab = "SMD for hippocampal volume")
 print(hipp_funnel)
 dev.off()
 
-png(filename="Plots/crf_funnel.png", width=5, height=5, units = "in", res = 600)
+```
+
+![Hippocampus Funnel Plot](hipp_funnel.png)
+\newpage
+
+```{r}
+
+png(filename="crf_funnel.png", width=5, height=5, units = "in", res = 600)
 funnel_crf <- rma.mv(yi = smd, V = var_d, random = ~factor(study_year_int_dpt)|study_year, data = ex_hpc_data_crf, slab = study_year_int_dpt)
 crf_funnel <- funnel(funnel_crf, xlab = "SMD for CRF")
 print(crf_funnel)
 dev.off()
 ```
+
+![CRF Funnel Plot](CRF_funnel.png)
+\newpage
 
 # PEESE
 ```{r, message=FALSE}
